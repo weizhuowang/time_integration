@@ -1,10 +1,11 @@
 % https://s3.amazonaws.com/szmanuals/6c05fe5e978d2e2e229955e3a35e9717
 % https://web.archive.org/web/20140802021208/http://www.boeing.com/assets/pdf/commercial/startup/pdf/777_perf.pdf
+% https://www.predictivemobility.com/family-777
 
 clc,clear;
 % ===================Sim setup====================
-t = 0; dt = 0.1; tend = 700*60; stage = 1; stopsim = false;
-g = 32.17405; DISA = 15/288;
+t = 0; dt = 0.1; tend = 1680*60; stage = 1; stopsim = false;
+g = 32.17405;DISA = 0;
 % ===================Init====================
 V = 0; L_to = 0; h = 0;D = 0;Fuel_burnt = 0;R = 0;L_land = 0;
 % ===================Logger====================
@@ -12,10 +13,16 @@ log_t = zeros(1,tend/dt); log_ROC = zeros(1,tend/dt);
 log_h = zeros(1,tend/dt); log_V = zeros(1,tend/dt);
 log_Fuel = zeros(1,tend/dt); log_Cl = zeros(1,tend/dt);
 % ===================Aircraft====================
-m0 = 482345; Vr = 199*1.6878; % 
-global S ThrustSL ThrustMinSL SFC_Cruise
+m0 = 482345; Vr = 199*1.6878;
+mu_roll = 0.04; mu_slide = 0.45;
+V_cruise = 775; h_cruise = 35000;
+R_cruise_end = 3400; m_maxFuel = 116926;
+V_init_approach = 230*1.6878; h_approach = 5000;
+Cl_max_land = 2.49;
+global S ThrustSL ThrustMinSL SFC_Cruise Cd0 K
 S = 3660; ThrustSL = 75000; ThrustMinSL = 2500; SFC_Cruise = 0.508;
-
+Cd0 = 0.01713; K = 0.04421; %0.053
+    
 tic
 for i = 1:tend/dt
     
@@ -29,7 +36,7 @@ for i = 1:tend/dt
                 Cl = 0.5;
                 ROC = 0;
                 L = 0.5*AltRho(h,DISA)*V^2*S*Cl;
-                F_forward = Thrust*2 - 0.04*(m-L);
+                F_forward = Thrust*2 - mu_roll*(m-L);
                 t_rotate = t;
             else
                 Cl = (2*m/(AltRho(h,DISA)*V^2*S))*1;
@@ -55,7 +62,7 @@ for i = 1:tend/dt
             Cl = (2*m/(AltRho(h,0)*V^2*S));
             D = Dcalc(V,Cl,h);
 
-            if V < 775
+            if V < V_cruise
                 a = 0.5;
 %                 fprintf('Thrust used: %2.0f Total Thrust: %2.0f ROC: %2.0f acce: %2.0f\n',...
 %                         [Thrust_used,Thrust*2,ROC/60*m/V,a*m/g])
@@ -81,7 +88,7 @@ for i = 1:tend/dt
                 stage = 3;
             end
             
-            if h > 35000
+            if h > h_cruise
                 t_climb = t
                 R
                 Fuel_burnt
@@ -102,13 +109,13 @@ for i = 1:tend/dt
             Fuel_burnt = Fuel_burnt + SFC*Thrust_used/3600*dt;
             
             
-            if R > 3400
+            if R > R_cruise_end
                 t_cruise = t
                 Fuel_burnt
                 stage = 4;
             end
             
-            if Fuel_burnt > 116926
+            if Fuel_burnt > m_maxFuel
                 t_cruise = t
                 fprintf('Out of Fuel at range %2.0f\n',[R])
                 stage = 4;
@@ -122,7 +129,7 @@ for i = 1:tend/dt
             Cl = (2*m/(AltRho(h,0)*V^2*S));
             D = Dcalc(V,Cl,h);
 
-            if V > 230*1.6878
+            if V > V_init_approach
                 a = -0.4;
 %                 fprintf('Thrust used: %2.0f Total Thrust: %2.0f ROC: %2.0f acce: %2.0f\n',...
 %                         [Thrust_used,Thrust*2,ROC/60*m/V,a*m/g])
@@ -140,13 +147,13 @@ for i = 1:tend/dt
            
 %             fprintf('%5.0f %2.0f %2.0f %2.2f %2.2f\n',[h,ROC,V,a,Thrust_used])
             
-            if h < 5000
+            if h < h_approach
                 stage = 5;
             end
             
             
         case 5   % approach
-            rho = AltRho(h,DISA);
+            rho = AltRho(h,0);
             Vstall = sqrt(2*m/(rho*S*2.49));
             Vapproach = Vstall*1.3;
             SFC = SFCcalc(h);
@@ -197,13 +204,12 @@ for i = 1:tend/dt
             end
 
             D = Dcalc(V,Cl,h);
-            if Cl > 2.49
+            if Cl > Cl_max_land
                 a = 0;
                 Thrust_used = 0.5*(D+ROC/60*m/V);
             else
                 a = (F_forward-D)*g/m;
             end
-            
             V = V + a*dt;
             h = h + ROC/60*dt;
             L_land = L_land + V*dt;
@@ -225,7 +231,7 @@ for i = 1:tend/dt
     
     % ==========Log stuff============
     log_t(i) = t; log_ROC(i) = ROC; log_h(i) = h;
-    log_V(i) = V; log_Fuel(i) = 116926-Fuel_burnt;
+    log_V(i) = V; log_Fuel(i) = m_maxFuel-Fuel_burnt;
     log_Cl(i) = Cl;
     
     if stopsim
@@ -241,7 +247,6 @@ h
 
 %% test
 figure(1);clf;
-subplot(2,1,1);
 yyaxis left
 plot(log_t(1:i),log_h(1:i));grid on;hold on;
 ylabel('Altitude [ft]')
@@ -250,16 +255,11 @@ plot(log_t(1:i),log_V(1:i));grid on;hold on;
 plot(log_t(1:i),log_ROC(1:i));grid on;hold on;
 xlabel('time [s]');ylabel('ROC [fpm] & V [ft/s]')
 
-subplot(2,1,2);
-plot(log_t(1:i),log_Cl(1:i));hold on;grid on;
+
 % yyaxis left
 % ylim([0,200])
 % xlim([2.8935e4,2.8975e4])
 
-% figure(2);clf;
-% plot(log_t(1:i),log_Fuel(1:i));grid on;hold on;
-% logger = table(log_t(1:i)',log_Fuel(1:i)',log_Cl(1:i)',log_h(1:i)',log_V(1:i)',log_ROC(1:i)');
-% % writetable(logger,'time_int_log.xlsx')
 function sfc = SFCcalc(h)
 
     global SFC_Cruise
@@ -269,11 +269,9 @@ end
 
 function [D,Cd] = Dcalc(V,Cl,alt)
     
-    global S
+    global S Cd0 K
     cdw = 0;
     
-    Cd0 = 0.01713; 
-    K = 0.04421; %0.053
     Cd = Cd0 + K*Cl^2;
     
     [rho,~,sigma,~,theta] = AltRho(alt,0);
